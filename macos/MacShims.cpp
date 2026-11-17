@@ -16,6 +16,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <strings.h>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -209,6 +210,43 @@ std::filesystem::path RootDir()
     return PluginDir().parent_path().parent_path().parent_path();
 }
 
+#if CET_IOS
+namespace
+{
+// aPath with each component that does not exist replaced by the entry of its folder that differs only in (ASCII) case; components
+// after the first one with no such entry are kept as given (a file or folder that is about to be created).
+std::filesystem::path ScanPathCase(const std::filesystem::path& aPath)
+{
+    std::filesystem::path result;
+    std::error_code error;
+    bool searching = true;
+    for (const auto& part : aPath)
+    {
+        const auto next = result / part;
+        if (!searching || result.empty() || std::filesystem::exists(next, error))
+        {
+            result = next;
+            continue;
+        }
+
+        std::filesystem::path found;
+        for (std::filesystem::directory_iterator it(result, error), end; !error && it != end; it.increment(error))
+        {
+            const auto name = it->path().filename();
+            if (strcasecmp(name.c_str(), part.c_str()) == 0)
+            {
+                found = name;
+                break;
+            }
+        }
+        searching = !found.empty();
+        result /= searching ? found : part;
+    }
+    return result;
+}
+} // namespace
+#endif
+
 std::filesystem::path ResolvePathCase(const std::filesystem::path& aPath)
 {
 #if CET_IOS
@@ -216,20 +254,18 @@ std::filesystem::path ResolvePathCase(const std::filesystem::path& aPath)
     if (aPath.empty() || std::filesystem::exists(aPath, error))
         return aPath;
 
+    // The shim keeps a cache of the spellings it has found, shared with the game and the other plugins.
     using ResolveFn = int (*)(const char*, char*, size_t);
     static const auto s_resolve = reinterpret_cast<ResolveFn>(dlsym(RTLD_DEFAULT, "MSResolvePathCase"));
-    if (!s_resolve)
-        return aPath;
-
     char buffer[4096];
-    if (s_resolve(aPath.c_str(), buffer, sizeof(buffer)) == 0 && aPath.native() != buffer)
+    if (s_resolve && s_resolve(aPath.c_str(), buffer, sizeof(buffer)) == 0 && aPath.native() != buffer &&
+        std::filesystem::exists(buffer, error))
         return buffer;
 
-    // A file that is about to be created: only its folder can differ in case.
-    const auto parent = aPath.parent_path();
-    if (!parent.empty() && parent != aPath && !std::filesystem::exists(parent, error) &&
-        s_resolve(parent.c_str(), buffer, sizeof(buffer)) == 0 && parent.native() != buffer)
-        return std::filesystem::path(buffer) / aPath.filename();
+    // Not found by the shim: it answers only for a path that exists in full and remembers a miss for good, so a file that is about to
+    // be created in a folder spelled differently, or one created after it was first asked for, is looked up here.
+    if (aPath.is_absolute())
+        return ScanPathCase(aPath);
 #endif
     return aPath;
 }
