@@ -28,6 +28,76 @@ void GameMainThread::RepeatedTaskQueue::Drain()
             ++taskIt;
     }
 }
+#if CET_IOS
+GameMainThread::StateTickOverride::StateTickOverride(uint32_t, const char*)
+{
+}
+
+GameMainThread::StateTickOverride::~StateTickOverride() = default;
+
+bool GameMainThread::StateTickOverride::OnTick(RED4ext::IGameState*, RED4ext::CGameApplication*)
+{
+    Tasks.Drain();
+    return true;
+}
+
+GameMainThread::GameMainThread()
+{
+    const auto* sdk = CetMac::PluginSdk();
+    if (!sdk || !sdk->gameStates || !sdk->gameStates->Add)
+    {
+        Log::Error("RED4ext gave no game-state interface! Main thread is not hooked: no onUpdate, no deferred hooks!");
+        return;
+    }
+
+    using RED4ext::EGameStateType;
+    static constexpr std::pair<EGameStateType, const char*> s_cStates[] = {
+        {EGameStateType::BaseInitialization, "BaseInitialization"},
+        {EGameStateType::Initialization, "Initialization"},
+        {EGameStateType::Running, "Running"},
+        {EGameStateType::Shutdown, "Shutdown"}};
+    static constexpr bool (*s_cCallbacks[])(RED4ext::CGameApplication*) = {
+        [](RED4ext::CGameApplication*) { return StateCallback(EGameStateType::BaseInitialization); },
+        [](RED4ext::CGameApplication*) { return StateCallback(EGameStateType::Initialization); },
+        [](RED4ext::CGameApplication*) { return StateCallback(EGameStateType::Running); },
+        [](RED4ext::CGameApplication*) { return StateCallback(EGameStateType::Shutdown); }};
+
+    for (size_t i = 0; i < std::size(s_cStates); ++i)
+    {
+        // Running is ticked through OnUpdate every frame. The other three get one call each on enter and on update: RED4ext keeps
+        // the game in an initialization state for as long as an update callback answers false, so those answer true (and RED4ext
+        // then drops the callback).
+        RED4ext::v1::GameState state{};
+        state.OnUpdate = s_cCallbacks[i];
+        if (s_cStates[i].first != EGameStateType::Running)
+            state.OnEnter = s_cCallbacks[i];
+        if (sdk->gameStates->Add(CetMac::PluginHandleValue(), s_cStates[i].first, &state))
+            Log::Info("Main thread state {} callback registered with RED4ext!", s_cStates[i].second);
+        else
+            Log::Error("Could not register the {} state callback with RED4ext! Main thread is not completely hooked!", s_cStates[i].second);
+    }
+}
+
+bool GameMainThread::StateCallback(RED4ext::EGameStateType aType)
+{
+    auto& gmt = Get();
+
+    // hooks on targets ArchiveXL and Codeware own are chained once every plugin is loaded (macos/MacShims.hpp)
+    static bool s_sharedHooksReady = false;
+    if (!s_sharedHooksReady && CetMac::FlushDeferredHooks())
+    {
+        s_sharedHooksReady = true;
+        if (CetMac::CetReady())
+            CET::Get().GetVM().OnMacSharedHooksReady();
+    }
+
+    gmt.m_genericQueue.Drain();
+    gmt.m_stateTickOverrides[static_cast<size_t>(aType)].Tasks.Drain();
+
+    // RED4ext drops a callback that answers true; Running must keep coming.
+    return aType != RED4ext::EGameStateType::Running;
+}
+#else
 GameMainThread::StateTickOverride::StateTickOverride(uint32_t aHash, const char* acpRealFunctionName)
 {
     const RED4ext::UniversalRelocPtr<uint8_t> func(aHash);
@@ -58,6 +128,7 @@ bool GameMainThread::StateTickOverride::OnTick(RED4ext::IGameState* apThisState,
 
     return RealFunction(apThisState, apGameApplication);
 }
+#endif // CET_IOS
 
 GameMainThread& GameMainThread::Get()
 {

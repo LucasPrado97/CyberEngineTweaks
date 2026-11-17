@@ -100,11 +100,15 @@ ScriptContext::ScriptContext(LuaSandbox& aLuaSandbox, const std::filesystem::pat
 
                     aLuaSandbox.SetImGuiAvailable(true);
 
-                    const auto previousStyle = ImGui::GetStyle();
+                    #ifndef CET_HEADLESS
+    const auto previousStyle = ImGui::GetStyle();
+#endif
 
                     TryLuaFunction(loggerRef, callback);
 
-                    ImGui::GetStyle() = previousStyle;
+                    #ifndef CET_HEADLESS
+    ImGui::GetStyle() = previousStyle;
+#endif
 
                     aLuaSandbox.SetImGuiAvailable(false);
                 };
@@ -167,13 +171,13 @@ ScriptContext::ScriptContext(LuaSandbox& aLuaSandbox, const std::filesystem::pat
     try
     {
         const auto previousCurrentPath = std::filesystem::current_path();
-        current_path(sb.GetRootPath());
+        LuaSandbox::EnterRoot(sb.GetRootPath());
 
         const auto path = m_sandbox.GetLuaPath(L"init.lua", acPath, false);
 
         const auto result = sb.ExecuteFile(UTF16ToUTF8(path.native()));
 
-        current_path(previousCurrentPath);
+        LuaSandbox::EnterRoot(previousCurrentPath);
 
         if (result.valid())
         {
@@ -266,11 +270,15 @@ void ScriptContext::TriggerOnDraw() const
 
     m_sandbox.SetImGuiAvailable(true);
 
+    #ifndef CET_HEADLESS
     const auto previousStyle = ImGui::GetStyle();
+#endif
 
     TryLuaFunction(m_logger, m_onDraw);
 
+    #ifndef CET_HEADLESS
     ImGui::GetStyle() = previousStyle;
+#endif
 
     m_sandbox.SetImGuiAvailable(false);
 }

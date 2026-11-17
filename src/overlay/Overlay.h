@@ -1,5 +1,10 @@
 #pragma once
 
+#if defined(CET_HEADLESS)
+// CET headless: no overlay (src/headless/Headless.h).
+#include "headless/Headless.h"
+#else
+
 #include "widgets/Console.h"
 #include "widgets/Bindings.h"
 #include "widgets/Settings.h"
@@ -43,3 +48,4 @@ private:
     PersistentState& m_persistentState;
     LuaVM& m_vm;
 };
+#endif

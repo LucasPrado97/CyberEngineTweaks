@@ -1,6 +1,9 @@
 #pragma once
 
-#ifdef __APPLE__
+#if defined(CET_HEADLESS)
+// CET headless: no renderer (src/headless/Headless.h).
+#include "headless/Headless.h"
+#elif defined(__APPLE__)
 // CET macOS: the Metal renderer keeps this class name (src/metal/MetalRenderer.h).
 #include "metal/MetalRenderer.h"
 #else

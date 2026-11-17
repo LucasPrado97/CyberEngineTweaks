@@ -39,6 +39,10 @@ std::filesystem::path RootDir();
 // The game executable (…/Cyberpunk2077.app/Contents/MacOS/Cyberpunk2077).
 std::filesystem::path ExePath();
 
+// The spelling of aPath that exists. iOS (CyPort): file names are case-sensitive, so a path whose case differs from the folder's is
+// looked up through the CyPort shim (MSResolvePathCase); when the file itself does not exist yet, its folder is. macOS: aPath.
+std::filesystem::path ResolvePathCase(const std::filesystem::path& aPath);
+
 // The GameInstance, from Codeware's codeware_mac_game_instance (null until the game has one, or without Codeware). The SDK path
 // CGameEngine::Get()->framework->gameInstance does not hold on macOS: the engine global is not mapped (Codeware captures the engine in
 // a hook) and the framework sits at engine +0x338 (2.5: +0x378), not the SDK's +0x308 (2.5: +0x348) (cp2077-codeware/macos/MacEngine.cpp).

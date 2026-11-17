@@ -9,7 +9,9 @@
 
 #include <sol/sol.hpp>
 #include <spdlog/spdlog.h>
+#ifndef CET_HEADLESS
 #include <imgui.h>
+#endif
 #include <MinHook.h>
 #ifndef __APPLE__
 #include <mem/module.h>
@@ -77,8 +79,10 @@
 #include <vector>
 
 #include "common/Logging.h"
+#ifndef CET_HEADLESS
 #include "common/FontMaterialDesignIcons.h"
 #include "common/ImGuiNotify.h"
+#endif
 #include "Options.h"
 #include "Paths.h"
 #include "PersistentState.h"

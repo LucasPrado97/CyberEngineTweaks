@@ -4,14 +4,16 @@
 
 #include "config/CETVersion.h"
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(CET_HEADLESS)
 // src/window/window_mac.mm (test only)
 void CetMacPostTestKey(uint16_t aKeyCode, int aHoldMs);
 #endif
 
 #include "FunctionOverride.h"
 #include "GameOptions.h"
+#ifndef CET_HEADLESS
 #include "Texture.h"
+#endif
 
 #include <CET.h>
 #include <lsqlite3/lsqlite3.h>
@@ -25,7 +27,9 @@ void CetMacPostTestKey(uint16_t aKeyCode, int aHoldMs);
 #include <reverse/RTTIExtender.h>
 #include <reverse/Converter.h>
 #include <reverse/TweakDB/TweakDB.h>
+#ifndef CET_HEADLESS
 #include <sol_imgui/sol_imgui.h>
+#endif
 #include <Utils.h>
 
 #ifdef CET_DEBUG
@@ -59,13 +63,23 @@ void Scripting::Initialize()
 
     luaVm.open_libraries(sol::lib::base, sol::lib::string, sol::lib::io, sol::lib::math, sol::lib::package, sol::lib::os, sol::lib::table, sol::lib::bit32);
 
+#if !CET_IOS
+    // iOS: LuaJIT is built without the JIT compiler (no run-time code generation), so the jit library is left out.
     if (m_options.Developer.EnableJIT)
         luaVm.open_libraries(sol::lib::jit);
+#endif
 
     luaVm.require("sqlite3", luaopen_lsqlite3);
 
     // make sure to set package path to current directory scope
     // as this could get overriden by LUA_PATH environment variable
+#if CET_IOS
+    // iOS (CyPort): the process's working folder is the game folder and the game relies on it, so it is never changed; CET's own
+    // scripts are found through an absolute package path instead.
+    luaVm["package"]["path"] = (m_paths.CETRoot() / "scripts").string() + "/?.lua";
+    luaVm.script("json = require 'json/json'", sol::detail::default_chunk_name(), sol::load_mode::text);
+    luaVm.script("IconGlyphs = require 'IconGlyphs/icons'", sol::detail::default_chunk_name(), sol::load_mode::text);
+#else
     luaVm["package"]["path"] = "./?.lua";
 
     // execute autoexec.lua inside our default script directory
@@ -74,12 +88,39 @@ void Scripting::Initialize()
     luaVm.script("json = require 'json/json'", sol::detail::default_chunk_name(), sol::load_mode::text);
     luaVm.script("IconGlyphs = require 'IconGlyphs/icons'", sol::detail::default_chunk_name(), sol::load_mode::text);
     current_path(previousCurrentPath);
+#endif
 
     // initialize sandbox
     m_sandbox.Initialize();
 
     auto& globals = m_sandbox.GetGlobals();
 
+#ifdef CET_HEADLESS
+    // CET headless: no ImGui. Mods still name ImGui and its enums while they load (flag constants, helper tables), so the names exist
+    // as inert stand-ins: every ImGui.* is a function that does nothing and returns nothing, every enum member is 0, ImVec2/ImVec4
+    // make plain tables. onDraw, onOverlayOpen and onOverlayClose never fire, so no mod draws through them.
+    {
+        sol::protected_function makeStubs = luaVm.script(R"lua(
+            return function(g)
+                local function nothing() end
+                local fnMeta = { __index = function() return nothing end }
+                local zeroMeta = { __index = function() return 0 end }
+                g.ImGui = setmetatable({}, fnMeta)
+                for _, name in ipairs({ "ImGuiCond", "ImGuiTreeNodeFlags", "ImGuiSelectableFlags", "ImGuiInputTextFlags",
+                    "ImGuiColorEditFlags", "ImGuiComboFlags", "ImGuiHoveredFlags", "ImGuiFocusedFlags", "ImGuiPopupFlags",
+                    "ImGuiItemFlags", "ImGuiTabItemFlags", "ImGuiChildFlags", "ImGuiKey", "ImGuiWindowFlags", "ImGuiStyleVar",
+                    "ImGuiTabBarFlags", "ImGuiSliderFlags", "ImGuiTableFlags", "ImGuiTableColumnFlags", "ImGuiTableRowFlags",
+                    "ImGuiTableBgTarget", "ImGuiMouseButton", "ImGuiCol", "ImGuiDir" }) do
+                    g[name] = setmetatable({}, zeroMeta)
+                end
+                g.ImVec2 = { new = function(x, y) return { x = x or 0, y = y or 0 } end }
+                g.ImVec4 = { new = function(x, y, z, w) return { x = x or 0, y = y or 0, z = z or 0, w = w or 0 } end }
+                g.ImGuiListClipper = { new = function() return setmetatable({ DisplayStart = 0, DisplayEnd = 0 }, fnMeta) end }
+            end
+        )lua", sol::detail::default_chunk_name(), sol::load_mode::text);
+        makeStubs(globals);
+    }
+#else
     // load in imgui bindings
     sol_ImGui::InitBindings(luaVm, globals);
     sol::table imgui = globals["ImGui"];
@@ -106,6 +147,7 @@ void Scripting::Initialize()
                 return original(as_args(aVariadicArgs));
             });
     }
+#endif // CET_HEADLESS
 
     // setup logger for console sandbox
     auto& consoleSB = m_sandbox[0];
@@ -141,7 +183,7 @@ void Scripting::Initialize()
         return {static_cast<float>(resolution.cx), static_cast<float>(resolution.cy)};
     };
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(CET_HEADLESS)
     // CET macOS, TEST ONLY: exists only when CP2077_AUTOTEST=1 is set (the port's automated in-game test).
     // Posts one key (macOS virtual key code, held aHoldMs) through AppKit's event queue, the path a real key takes, so the self-test mod
     // can drive the overlay (src/window/window_mac.mm).

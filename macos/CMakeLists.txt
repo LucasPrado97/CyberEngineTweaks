@@ -8,8 +8,19 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_OBJCXX_STANDARD 20)
 set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 set(CMAKE_OSX_ARCHITECTURES "arm64")
+# iOS (CyPort, ios/README.md): -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos builds the headless plugin: the Lua runtime and
+# scripting API with no ImGui, no overlay and no renderer (CET_HEADLESS), LuaJIT without the JIT compiler, hooks through baked sites.
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(CET_IOS ON)
+else()
+    set(CET_IOS OFF)
+endif()
 if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0")
+    if(CET_IOS)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "18.0")
+    else()
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0")
+    endif()
 endif()
 
 if(NOT APPLE)
@@ -69,11 +80,18 @@ file(WRITE "${CET_CONFIG_DIR}/config/CETVersion.h" "#pragma once
 # ---------------------------------------------------------------------------------------------------------------------------------
 # LuaJIT (openresty luajit2, GC64 is the arm64 default; Lua 5.2 compatibility as the Windows build).
 set(LUAJIT_OUT "${CMAKE_CURRENT_BINARY_DIR}/luajit")
-execute_process(
-    COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/build-luajit.sh" "${CET_VENDOR_MAC}/luajit2" "${LUAJIT_OUT}"
-    RESULT_VARIABLE LUAJIT_RESULT)
+if(CET_IOS)
+    # Interpreter only (no run-time code generation on iOS): ios/build-luajit.sh.
+    execute_process(
+        COMMAND /bin/bash "${CET_DIR}/ios/build-luajit.sh" "${CET_VENDOR_MAC}/luajit2" "${LUAJIT_OUT}" iphoneos "${CMAKE_OSX_DEPLOYMENT_TARGET}"
+        RESULT_VARIABLE LUAJIT_RESULT)
+else()
+    execute_process(
+        COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/build-luajit.sh" "${CET_VENDOR_MAC}/luajit2" "${LUAJIT_OUT}"
+        RESULT_VARIABLE LUAJIT_RESULT)
+endif()
 if(NOT LUAJIT_RESULT EQUAL 0)
-    message(FATAL_ERROR "macos/build-luajit.sh failed (${LUAJIT_RESULT})")
+    message(FATAL_ERROR "build-luajit.sh failed (${LUAJIT_RESULT})")
 endif()
 
 # TiltedCore's headers are included as <TiltedCore/...>.
@@ -127,6 +145,13 @@ file(GLOB_RECURSE CET_SOURCES CONFIGURE_DEPENDS "${CET_SRC}/*.cpp" "${CET_SRC}/*
 list(FILTER CET_SOURCES EXCLUDE REGEX "/src/d3d12/")
 list(FILTER CET_SOURCES EXCLUDE REGEX "/src/patches/")
 list(REMOVE_ITEM CET_SOURCES "${CET_SRC}/reverse/RenderContext.cpp" "${CET_SRC}/imgui_impl/dx12.cpp" "${CET_SRC}/imgui_impl/win32.cpp" "${CET_SRC}/window/window.cpp")
+if(CET_IOS)
+    # Headless: no overlay, no widgets, no Metal renderer, no ImGui backends or bindings, no AppKit window; src/headless stands in.
+    list(FILTER CET_SOURCES EXCLUDE REGEX "/src/(overlay|metal|imgui_impl|window)/")
+    list(REMOVE_ITEM CET_SOURCES "${CET_SRC}/scripting/Texture.cpp")
+else()
+    list(FILTER CET_SOURCES EXCLUDE REGEX "/src/headless/")
+endif()
 
 set(IMGUI_DIR "${CET_VENDOR_MAC}/imgui")
 set(IMGUI_SOURCES
@@ -138,6 +163,9 @@ set(IMGUI_SOURCES
     "${IMGUI_DIR}/misc/freetype/imgui_freetype.cpp"
     "${IMGUI_DIR}/backends/imgui_impl_metal.mm"
 )
+if(CET_IOS)
+    set(IMGUI_SOURCES "")
+endif()
 set(TILTED_DIR "${CET_VENDOR_MAC}/TiltedCore/Code/core/src")
 set(TILTED_SOURCES
     "${TILTED_DIR}/Allocator.cpp"
@@ -151,8 +179,13 @@ set(TILTED_SOURCES
     "${TILTED_DIR}/TaskQueue.cpp"
     "${TILTED_DIR}/ViewBuffer.cpp"
 )
+if(CET_IOS)
+    set(CET_HVF_STUBS "")
+else()
+    set(CET_HVF_STUBS "${CMAKE_CURRENT_SOURCE_DIR}/HvfStubs.c")
+endif()
 set(CET_MAC_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/HvfStubs.c"
+    ${CET_HVF_STUBS}
     MacShims.cpp
     MacEntry.cpp
     MacVault.cpp
@@ -167,9 +200,14 @@ set(IMGUI_USER_CONFIG "${CET_SRC}/imgui_impl/imgui_user_config.h")
 target_compile_definitions(cyber_engine_tweaks PRIVATE
     RED4EXT_PLATFORM_MACOS RED4EXT_HEADER_ONLY
     NOMINMAX SOL_NO_NIL=0 SOL_ALL_SAFETIES_ON SOL_LUAJIT=1 SOL_EXCEPTIONS_SAFE_PROPAGATION
-    IMGUI_USER_CONFIG="${IMGUI_USER_CONFIG}" IMGUI_ENABLE_FREETYPE IMGUI_USE_WCHAR32
     SPDLOG_FMT_EXTERNAL
 )
+if(CET_IOS)
+    # spdlog and fmt header-only from vendor-mac (Homebrew's static libraries are macOS builds).
+    target_compile_definitions(cyber_engine_tweaks PRIVATE CET_IOS=1 CET_HEADLESS=1 FMT_HEADER_ONLY=1)
+else()
+    target_compile_definitions(cyber_engine_tweaks PRIVATE IMGUI_USER_CONFIG="${IMGUI_USER_CONFIG}" IMGUI_ENABLE_FREETYPE IMGUI_USE_WCHAR32)
+endif()
 
 # Codeware's macOS SDK header fixes (gameIGameSystem: IsSavingLocked returns its SaveLock through x8 on arm64), ahead of the SDK.
 # An SDK on the current upstream API (Containers/DynArray.hpp) already has them, and the copies would shadow its headers.
@@ -188,20 +226,38 @@ target_include_directories(cyber_engine_tweaks PRIVATE
     "${CET_SRC}"
     "${CET_CONFIG_DIR}"
     "${LUAJIT_OUT}/include"
-    "${IMGUI_DIR}"
-    "${IMGUI_DIR}/backends"
-    "${IMGUI_DIR}/misc/freetype"
     "${CET_VENDOR_MAC}/sol2/include"
     "${CET_VENDOR_MAC}/json/single_include"
     "${CET_VENDOR_MAC}/hopscotch-map/include"
-    "${CET_VENDOR_MAC}/stb"
     "${TILTED_INCLUDE}"
     "${CET_VENDOR_MAC}/TiltedCore/Code/core/include"
-    "${HOMEBREW_PREFIX}/include"
-    "${HOMEBREW_PREFIX}/include/freetype2"
 )
+if(CET_IOS)
+    target_include_directories(cyber_engine_tweaks PRIVATE
+        "${CET_VENDOR_MAC}/spdlog/include"
+        "${CET_VENDOR_MAC}/fmt/include"
+    )
+else()
+    target_include_directories(cyber_engine_tweaks PRIVATE
+        "${IMGUI_DIR}"
+        "${IMGUI_DIR}/backends"
+        "${IMGUI_DIR}/misc/freetype"
+        "${CET_VENDOR_MAC}/stb"
+        "${HOMEBREW_PREFIX}/include"
+        "${HOMEBREW_PREFIX}/include/freetype2"
+    )
+endif()
 
 # Game symbols are reached through address hashes, never by name; check-undefined.sh proves nothing else is left undefined.
+if(CET_IOS)
+    # No -undefined dynamic_lookup: every symbol must resolve at link time against the iOS SDK (libSystem, libc++, libsqlite3,
+    # Foundation, CoreFoundation, UIKit). The CyPort shim and the other plugins are reached through dlsym, the game through addresses.
+    target_link_libraries(cyber_engine_tweaks PRIVATE
+        "${LUAJIT_OUT}/lib/libluajit-5.1.a"
+        sqlite3
+        "-framework Foundation" "-framework CoreFoundation" "-framework UIKit"
+    )
+else()
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -undefined dynamic_lookup")
 target_link_libraries(cyber_engine_tweaks PRIVATE
     "${LUAJIT_OUT}/lib/libluajit-5.1.a"
@@ -214,13 +270,16 @@ target_link_libraries(cyber_engine_tweaks PRIVATE
     sqlite3 z bz2
     "-framework Foundation" "-framework AppKit" "-framework QuartzCore" "-framework Metal" "-framework CoreGraphics"
 )
+endif()
 
 target_precompile_headers(cyber_engine_tweaks PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CET_SRC}/stdafx.h>)
 set_source_files_properties(${IMGUI_SOURCES} ${TILTED_SOURCES} MacVault.cpp TiltedMallocAllocator.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 # ImGui's Metal backend defines Objective-C classes with generic names; NightCity Console's overlay (injected in the same process) carries
 # its own copy, and two classes with one name make the Objective-C runtime pick one at random. CET's copies get their own names.
+if(NOT CET_IOS)
 set_source_files_properties("${IMGUI_DIR}/backends/imgui_impl_metal.mm" PROPERTIES COMPILE_DEFINITIONS
     "MetalBuffer=CETImGuiMetalBuffer;FramebufferDescriptor=CETImGuiFramebufferDescriptor;MetalContext=CETImGuiMetalContext")
+endif()
 
 target_compile_options(cyber_engine_tweaks PRIVATE
     -fexceptions
@@ -246,4 +305,8 @@ add_custom_command(TARGET cyber_engine_tweaks POST_BUILD
     VERBATIM
 )
 
-message(STATUS "Cyber Engine Tweaks ${CET_GIT_TAG} (${CET_GIT_BRANCH} ${CET_GIT_COMMIT}) configured for macOS")
+if(CET_IOS)
+    message(STATUS "Cyber Engine Tweaks ${CET_GIT_TAG} (${CET_GIT_BRANCH} ${CET_GIT_COMMIT}) configured for iOS (headless)")
+else()
+    message(STATUS "Cyber Engine Tweaks ${CET_GIT_TAG} (${CET_GIT_BRANCH} ${CET_GIT_COMMIT}) configured for macOS")
+endif()

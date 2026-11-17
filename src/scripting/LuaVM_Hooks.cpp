@@ -90,11 +90,16 @@ bool InitializeTweakDBMetadata(TiltedPhoques::Map<uint64_t, TDBIDLookupEntry>& l
 
     auto OodleLZ_Decompress = reinterpret_cast<TOodleLZ_Decompress>(GetProcAddress(hOodleHandle, "OodleLZ_Decompress"));
 #endif
+#ifdef __APPLE__
+    // The game links Oodle statically on macOS and iOS and does not export it, so the compressed tweakdbstr.kark cannot be read
+    // there; an uncompressed tweakdb.str (same content) needs no decompressor and is still loaded.
+#else
     if (OodleLZ_Decompress == nullptr)
     {
         Log::Error("CDPRTweakDBMetadata::Initalize() - Could not get OodleLZ_Decompress");
         return false;
     }
+#endif
 
     const auto tdbstrPathRAW = GetAbsolutePath(L"tweakdb.str", CET::Get().GetPaths().TweakDB(), false, true);
     if (!tdbstrPathRAW.empty())
@@ -119,6 +124,12 @@ bool InitializeTweakDBMetadata(TiltedPhoques::Map<uint64_t, TDBIDLookupEntry>& l
     }
     else
     {
+        if (OodleLZ_Decompress == nullptr)
+        {
+            Log::Warn("CDPRTweakDBMetadata::Initalize() - no tweakdb.str and no Oodle decompressor for tweakdbstr.kark: TweakDBID names are not loaded");
+            return false;
+        }
+
         const auto tdbstrPath = GetAbsolutePath(L"tweakdbstr.kark", CET::Get().GetPaths().TweakDB(), false, true);
         if (tdbstrPath.empty())
         {

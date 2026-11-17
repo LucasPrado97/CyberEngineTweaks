@@ -63,7 +63,14 @@ Paths::Paths()
 
     m_gameRoot = CetMac::RootDir();
 
+#if CET_IOS
+    // iOS (CyPort): the dylib is loaded from red4ext/plugins/cyber_engine_tweaks, and CET's data folder is the one Windows mods are
+    // packed for, <game>/bin/x64/plugins/cyber_engine_tweaks (mods/<Mod>/init.lua), so a Nexus archive unpacks over the game folder
+    // unchanged. File names are case-sensitive here: an existing folder spelled in another case is used as it is.
+    m_cetRoot = CetMac::ResolvePathCase(m_gameRoot / "bin" / "x64" / "plugins" / "cyber_engine_tweaks");
+#else
     m_cetRoot = CetMac::PluginDir();
+#endif
     create_directories(m_cetRoot);
 #else
     TCHAR exePathBuf[MAX_PATH] = {0};
@@ -94,6 +101,9 @@ Paths::Paths()
         std::filesystem::remove(m_vkBindings);
 
     m_modsRoot = m_cetRoot / L"mods";
+#if CET_IOS
+    m_modsRoot = CetMac::ResolvePathCase(m_modsRoot); // an archive that spells it Mods
+#endif
     create_directories(m_modsRoot);
 
     m_r6CacheModdedRoot = m_gameRoot;

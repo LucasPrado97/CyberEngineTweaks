@@ -29,6 +29,17 @@ struct LuaSandbox
     sol::table& GetGlobals();
 
     const bool GetIsLaunchedThroughMO2() const { return m_isLaunchedThroughMO2; }
+
+    // Makes aPath the working folder while a mod's file is resolved (the paths GetLuaPath returns are relative to it). iOS (CyPort):
+    // does nothing, the working folder is the game folder and the game relies on it; GetLuaPath returns absolute paths there.
+    static void EnterRoot(const std::filesystem::path& aPath)
+    {
+#if CET_IOS
+        (void)aPath;
+#else
+        std::filesystem::current_path(aPath);
+#endif
+    }
     [[nodiscard]] std::filesystem::path 
     Relative(const std::filesystem::path& acFilePath, const std::filesystem::path& acRootPath) const;
     [[nodiscard]] std::filesystem::path

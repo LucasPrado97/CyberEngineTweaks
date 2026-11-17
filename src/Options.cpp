@@ -57,13 +57,17 @@ void DeveloperSettings::Load(const nlohmann::json& aConfig)
     EnableJIT = aConfig.value("enable_jit", EnableJIT);
 
     // set global "Enable ImGui Assertions"
+#ifndef CET_HEADLESS
     g_ImGuiAssertionsEnabled = EnableImGuiAssertions;
+#endif
 }
 
 nlohmann::json DeveloperSettings::Save() const
 {
     // set global "Enable ImGui Assertions"
+#ifndef CET_HEADLESS
     g_ImGuiAssertionsEnabled = EnableImGuiAssertions;
+#endif
 
     return {{"remove_dead_bindings", RemoveDeadBindings},          {"enable_imgui_assertions", EnableImGuiAssertions}, {"dump_game_options", DumpGameOptions},
             {"max_lines_console_history", MaxLinesConsoleHistory}, {"persistent_console", PersistentConsole},          {"enable_jit", EnableJIT}};
@@ -74,7 +78,9 @@ void DeveloperSettings::ResetToDefaults()
     *this = {};
 
     // set global "Enable ImGui Assertions"
+#ifndef CET_HEADLESS
     g_ImGuiAssertionsEnabled = EnableImGuiAssertions;
+#endif
 }
 
 void Options::Load()

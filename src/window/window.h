@@ -1,6 +1,9 @@
 #pragma once
 
-#ifdef __APPLE__
+#if defined(CET_HEADLESS)
+// CET headless: no window (src/headless/Headless.h).
+#include "headless/Headless.h"
+#elif defined(__APPLE__)
 // CET macOS: the game window and its input (src/window/window_mac.mm). On Windows this class subclasses the game's WndProc; on
 // macOS it finds the game's NSWindow and content view on the AppKit thread, follows their size, and installs one NSEvent local monitor.
 // The monitor turns keyboard and mouse events into MacInputEvent records for the game thread (D3D12::PrepareUpdate feeds them to ImGui

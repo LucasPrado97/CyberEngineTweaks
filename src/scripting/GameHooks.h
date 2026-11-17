@@ -11,7 +11,14 @@ struct GameMainThread
     void AddGenericTask(const std::function<bool()>& aFunction);
 
 private:
+#if CET_IOS
+    // iOS (CyPort): the four OnTick functions are not hooked (a hook needs a baked site per function); the ticks come from RED4ext's
+    // game-state callbacks instead, which it drives from the state objects' own virtual functions.
+    GameMainThread();
+    static bool StateCallback(RED4ext::EGameStateType aType);
+#else
     GameMainThread() = default;
+#endif
 
     using TStateTick = bool(RED4ext::IGameState*, RED4ext::CGameApplication*);
 

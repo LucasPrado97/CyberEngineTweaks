@@ -18,3 +18,6 @@ vs2022/*
 vsxmake*/
 *.pyc
 src/config/*
+# iOS (CyPort) build and staged deploy folder
+build-ios/
+deploy/

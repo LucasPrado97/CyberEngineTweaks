@@ -90,6 +90,13 @@ std::atomic<bool> g_cetReady{false};
 // The chain symbol of the plugin that also hooks this target (cp2077-archive-xl-macos and cp2077-codeware hook-offsets.txt).
 const char* SharedTargetOwner(unsigned long aRva)
 {
+#if CET_IOS
+    // iOS (CyPort): a baked hook site takes several detours (the shim stacks up to 8), so a target another plugin hooks too is
+    // attached at once like any other: chained through the owner when it already hooked it, else through RED4ext directly. Nothing
+    // waits for a game-state tick.
+    (void)aRva;
+    return nullptr;
+#endif
     switch (aRva)
     {
     case 0x37CE05C: return "archivexl_mac_hook_chain_attach"; // TweakDB::LoadOptimized
@@ -160,7 +167,18 @@ uintptr_t ImageSize()
 uintptr_t VerifiedAddress(uintptr_t aRva, const uint32_t* aExpected, size_t aCount, const char* aName)
 {
     const uintptr_t address = ImageBase() + aRva;
-    if (aRva + aCount * 4 > ImageSize() || std::memcmp(reinterpret_cast<const void*>(address), aExpected, aCount * 4) != 0)
+    bool matches = aRva + aCount * 4 <= ImageSize() && std::memcmp(reinterpret_cast<const void*>(address), aExpected, aCount * 4) == 0;
+#if CET_IOS
+    // iOS (CyPort): the entry of a hookable function is baked into adrp x16 / ldr x16, [x16, #off] / br x16 when the app is built;
+    // the words after those three are the original ones.
+    if (!matches && aCount >= 3 && aRva + aCount * 4 <= ImageSize())
+    {
+        const auto* words = reinterpret_cast<const uint32_t*>(address);
+        matches = (words[0] & 0x9F00001F) == 0x90000010 && (words[1] & 0xFFC003FF) == 0xF9400210 && words[2] == 0xD61F0200 &&
+                  std::memcmp(words + 3, aExpected + 3, (aCount - 3) * 4) == 0;
+    }
+#endif
+    if (!matches)
     {
         Log("[cet] %s: the code at rva 0x%lx is not the expected function (another game build?); feature skipped", aName,
             static_cast<unsigned long>(aRva));
@@ -191,10 +209,44 @@ std::filesystem::path RootDir()
     return PluginDir().parent_path().parent_path().parent_path();
 }
 
+std::filesystem::path ResolvePathCase(const std::filesystem::path& aPath)
+{
+#if CET_IOS
+    std::error_code error;
+    if (aPath.empty() || std::filesystem::exists(aPath, error))
+        return aPath;
+
+    using ResolveFn = int (*)(const char*, char*, size_t);
+    static const auto s_resolve = reinterpret_cast<ResolveFn>(dlsym(RTLD_DEFAULT, "MSResolvePathCase"));
+    if (!s_resolve)
+        return aPath;
+
+    char buffer[4096];
+    if (s_resolve(aPath.c_str(), buffer, sizeof(buffer)) == 0 && aPath.native() != buffer)
+        return buffer;
+
+    // A file that is about to be created: only its folder can differ in case.
+    const auto parent = aPath.parent_path();
+    if (!parent.empty() && parent != aPath && !std::filesystem::exists(parent, error) &&
+        s_resolve(parent.c_str(), buffer, sizeof(buffer)) == 0 && parent.native() != buffer)
+        return std::filesystem::path(buffer) / aPath.filename();
+#endif
+    return aPath;
+}
+
 std::filesystem::path ExePath()
 {
     char buffer[4096];
     uint32_t size = sizeof(buffer);
+#if CET_IOS
+    // iOS (CyPort): the game folder is in the app's Documents (or on an external drive); the CyPort shim reports the game's pretend
+    // macOS executable path (<game>/Cyberpunk2077.app/Contents/MacOS/Cyberpunk2077), as it does to the game itself.
+    using PathFn = int (*)(char*, uint32_t*);
+    static const auto s_shimPath = reinterpret_cast<PathFn>(dlsym(RTLD_DEFAULT, "MSGameExecutablePath"));
+    if (s_shimPath && s_shimPath(buffer, &size) == 0)
+        return std::filesystem::path(buffer);
+    size = sizeof(buffer);
+#endif
     if (_NSGetExecutablePath(buffer, &size) == 0)
     {
         std::error_code error;

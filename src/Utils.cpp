@@ -255,6 +255,7 @@ bool IsLuaCData(const sol::object& acpObject)
     return static_cast<int>(acpObject.get_type()) == 10;
 }
 
+#ifndef CET_HEADLESS
 float GetAlignedItemWidth(const int64_t acItemsCount)
 {
     return (ImGui::GetContentRegionAvail().x - static_cast<float>(acItemsCount - 1) * ImGui::GetStyle().ItemSpacing.x) /
@@ -328,6 +329,7 @@ TChangedCBResult UnsavedChangesPopup(
     }
     return TChangedCBResult::APPLY; // no changes, same as if we were to Apply
 }
+#endif // CET_HEADLESS
 
 std::filesystem::path GetAbsolutePath(const std::string& acFilePath, const std::filesystem::path& acRootPath, const bool acAllowNonExisting, const bool acAllowSymlink)
 {
