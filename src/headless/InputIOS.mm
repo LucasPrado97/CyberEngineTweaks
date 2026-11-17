@@ -197,6 +197,7 @@ std::vector<CetIOSInputEvent> g_queue;
 id g_monitor = nil;
 std::atomic<int32_t> g_screenWidth{0};
 std::atomic<int32_t> g_screenHeight{0};
+std::atomic<float> g_screenScale{0.0f};
 
 void Push(CetIOSInputEvent aEvent)
 {
@@ -257,13 +258,29 @@ void OnEvent(id<CetShimEvent> aEvent)
 }
 } // namespace
 
-bool CetIOSInstallInput()
+uint16_t CetIOSMacKeyToVK(uint16_t aKeyCode)
+{
+    return MacKeyToVK(aKeyCode);
+}
+
+void CetIOSQueryScreen()
 {
     dispatch_async(dispatch_get_main_queue(), ^{
         const CGRect bounds = UIScreen.mainScreen.nativeBounds; // pixels, portrait
+        g_screenScale = static_cast<float>(UIScreen.mainScreen.nativeScale);
         g_screenWidth = static_cast<int32_t>(MAX(bounds.size.width, bounds.size.height));
         g_screenHeight = static_cast<int32_t>(MIN(bounds.size.width, bounds.size.height));
     });
+}
+
+float CetIOSScreenScale()
+{
+    return g_screenScale;
+}
+
+bool CetIOSInstallInput()
+{
+    CetIOSQueryScreen();
 
     Class eventClass = NSClassFromString(@"NSEvent");
     if (!eventClass || ![eventClass respondsToSelector:@selector(addLocalMonitorForEventsMatchingMask:handler:)])

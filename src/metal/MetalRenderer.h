@@ -8,6 +8,10 @@
 // thread (the same GameMainThread task as on Windows) and rendered right after it; the layer is hidden while nothing is drawn, so normal
 // play pays nothing. Input comes from an NSEvent local monitor (src/window/window_mac.mm): events are queued on the AppKit thread and
 // fed to ImGui and VKBindings on the game thread; while the overlay is open they are kept from the game.
+//
+// iOS (CyPort, CET_IOS_OVERLAY): the same renderer. The layer is handed to the CyPort shim (MSRegisterOverlayLayer), which puts it over
+// the game view and leaves it out of its frame pacing; it is drawn at fewer pixels than the screen has (Options: ios_render_scale) and
+// its drawables are given back while nothing is drawn. Input comes from the shim's NSEvent stand-in (src/window/window_ios.mm).
 
 #include "window/window.h"
 
@@ -37,6 +41,8 @@ protected:
     bool Initialize();
     bool ResetState(const bool acDestroyContext = false);
     bool InitializeImGui();
+    // The factor on CET's style sizes and font size (1 at 1080p on the desktop; from the overlay's pixels per point on iOS).
+    float ScaleFromReference() const;
 
     void PrepareUpdate();
     void Render();
@@ -52,6 +58,7 @@ private:
     void* m_inFlight{nullptr};     // dispatch_semaphore_t, at most 2 frames in flight
 
     SIZE m_outSize{};
+    float m_pointScale{1.0f}; // iOS: the overlay's pixels per screen point
     std::atomic_bool m_layerVisible{false};
     std::atomic<uint64_t> m_framesBuilt{0};
     std::atomic<uint64_t> m_framesPresented{0};

@@ -8,6 +8,8 @@
 // macOS it finds the game's NSWindow and content view on the AppKit thread, follows their size, and installs one NSEvent local monitor.
 // The monitor turns keyboard and mouse events into MacInputEvent records for the game thread (D3D12::PrepareUpdate feeds them to ImGui
 // and VKBindings) and, while the overlay traps input, keeps them from the game.
+// CET iOS with the overlay (CET_IOS_OVERLAY): the same class in src/window/window_ios.mm, with the monitor on the CyPort shim's NSEvent
+// stand-in (keyboard, mouse and touches the shim turns into mouse events).
 
 #include <mutex>
 #include <vector>
@@ -55,6 +57,16 @@ struct Window
     float GetBackingScale() const { return m_backingScale; }
 
     bool IsInitialized() const { return m_initialized; }
+
+#if CET_IOS
+    // iOS (src/window/window_ios.mm): there is no window to measure; the renderer sets the overlay's size in pixels and its pixels
+    // per point. MacInputEvent::X / Y are fractions of the game view (0..1 from its top-left), not pixels.
+    void SetClientMetrics(SIZE aSize, float aScale)
+    {
+        m_wndSize = m_clientSize = aSize;
+        m_backingScale = aScale;
+    }
+#endif
 
     // Game thread: move the queued input to aOut (oldest first).
     void DrainInput(std::vector<MacInputEvent>& aOut);

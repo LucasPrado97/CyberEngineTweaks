@@ -220,8 +220,14 @@ void Overlay::Update()
 
     const auto [width, height] = CET::Get().GetD3D12().GetResolution();
     const auto heightLimit = 2 * ImGui::GetFrameHeight() + 2 * ImGui::GetStyle().WindowPadding.y;
+#if CET_IOS
+    // a phone: wider (seven buttons), and below the touch pad's CET and keyboard buttons at the top centre
+    ImGui::SetNextWindowPos({width * 0.1f, height * 0.2f}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints({width * 0.8f, heightLimit}, {FLT_MAX, heightLimit});
+#else
     ImGui::SetNextWindowPos({width * 0.25f, height * 0.05f}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints({width * 0.5f, heightLimit}, {FLT_MAX, heightLimit});
+#endif
     if (ImGui::Begin("Cyber Engine Tweaks"))
         DrawToolbar();
     ImGui::End();

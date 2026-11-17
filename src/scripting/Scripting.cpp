@@ -4,7 +4,7 @@
 
 #include "config/CETVersion.h"
 
-#if defined(__APPLE__) && !defined(CET_HEADLESS)
+#if defined(__APPLE__) && !CET_IOS
 // src/window/window_mac.mm (test only)
 void CetMacPostTestKey(uint16_t aKeyCode, int aHoldMs);
 #endif
@@ -183,7 +183,7 @@ void Scripting::Initialize()
         return {static_cast<float>(resolution.cx), static_cast<float>(resolution.cy)};
     };
 
-#if defined(__APPLE__) && !defined(CET_HEADLESS)
+#if defined(__APPLE__) && !CET_IOS
     // CET macOS, TEST ONLY: exists only when CP2077_AUTOTEST=1 is set (the port's automated in-game test).
     // Posts one key (macOS virtual key code, held aHoldMs) through AppKit's event queue, the path a real key takes, so the self-test mod
     // can drive the overlay (src/window/window_mac.mm).

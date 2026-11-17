@@ -28,3 +28,11 @@ void CetIOSRemoveInput();
 size_t CetIOSDrainInput(CetIOSInputEvent* apOut, size_t aCapacity);
 // The screen in pixels, landscape (0 x 0 until UIKit has answered on the main thread).
 void CetIOSScreenPixels(int32_t* apWidth, int32_t* apHeight);
+
+// For the overlay build (src/window/window_ios.mm), which installs its own monitor:
+// macOS virtual key code (the codes the shim's events carry) to the Windows virtual-key code, 0 if none.
+uint16_t CetIOSMacKeyToVK(uint16_t aKeyCode);
+// Asks UIKit for the screen size and scale on the main thread (CetIOSInstallInput does it too).
+void CetIOSQueryScreen();
+// Pixels per point of the screen (0 until UIKit has answered).
+float CetIOSScreenScale();

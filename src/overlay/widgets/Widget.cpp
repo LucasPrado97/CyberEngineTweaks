@@ -93,9 +93,16 @@ void Widget::Draw()
     else
     {
         const auto [width, height] = CET::Get().GetD3D12().GetResolution();
+#if CET_IOS
+        // a phone: under the toolbar, most of the screen
+        ImGui::SetNextWindowPos(ImVec2(width * 0.1f, height * 0.4f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(width * 0.8f, height * 0.56f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(width * 0.3f, height * 0.3f), ImVec2(FLT_MAX, FLT_MAX));
+#else
         ImGui::SetNextWindowPos(ImVec2(width * 0.2f, height * 0.2f), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(width * 0.6f, height * 0.6f), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSizeConstraints(ImVec2(420, 315), ImVec2(FLT_MAX, FLT_MAX));
+#endif
         if (ImGui::Begin(m_name.c_str(), &newEnabled))
             OnUpdate();
         ImGui::End();

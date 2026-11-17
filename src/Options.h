@@ -32,6 +32,10 @@ struct FontSettings
     float BaseSize{18.0f};
     int32_t OversampleHorizontal{3};
     int32_t OversampleVertical{1};
+    // iOS overlay only ("ios_render_scale", "ios_ui_scale" in config.json): the overlay's pixels per screen point (1 to 3; the phone
+    // has 3, fewer cost less memory) and a factor on the size of the text and controls (0.5 to 2).
+    float OverlayRenderScale{1.5f};
+    float OverlayUIScale{1.0f};
 };
 
 struct DeveloperSettings

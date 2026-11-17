@@ -147,12 +147,33 @@ void Bindings::ResetChanges()
 
 bool Bindings::IsFirstTimeSetup()
 {
+#if CET_IOS
+    // iOS (CyPort): the touch pad's "CET" button opens the overlay, so nobody is asked to press a key combination first (a phone may
+    // have no keyboard at all). An unset overlay key becomes F11 (a Bluetooth keyboard, or the F11 key above the iPhone keyboard).
+    if (s_overlayToggleBindInfo.SavedCodeBind == 0)
+    {
+        auto& bindings = CET::Get().GetBindings();
+        auto code = bindings.GetBindCodeForModBind(s_overlayToggleModBind);
+        if (code == 0)
+        {
+            code = static_cast<uint64_t>(VK_F11) << 48;
+            if (bindings.Bind(code, s_overlayToggleModBind))
+                bindings.Save();
+            else
+                code = 0;
+        }
+        s_overlayToggleBindInfo.CodeBind = code;
+        s_overlayToggleBindInfo.SavedCodeBind = code;
+    }
+    return false;
+#else
     if (s_overlayToggleBindInfo.SavedCodeBind == 0)
     {
         s_overlayToggleBindInfo.CodeBind = CET::Get().GetBindings().GetBindCodeForModBind(s_overlayToggleModBind);
         s_overlayToggleBindInfo.SavedCodeBind = s_overlayToggleBindInfo.CodeBind;
     }
     return s_overlayToggleBindInfo.SavedCodeBind == 0;
+#endif
 }
 
 bool Bindings::FirstTimeSetup()

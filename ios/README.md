@@ -1,11 +1,14 @@
-# Cyber Engine Tweaks on iOS (CyPort), stage A: headless
+# Cyber Engine Tweaks on iOS (CyPort)
+
+Two builds: the headless plugin (stage A, the default, verified on an iPhone 17 Pro) and the plugin with the ImGui overlay
+(`-DCET_IOS_OVERLAY=ON`, see [Overlay](#overlay-cet_ios_overlay); it builds and has not run on a phone yet).
+
+## Stage A: headless
 
 The Lua runtime and scripting API of Cyber Engine Tweaks for Cyberpunk 2077 2.5.0 (Steam Mac build, UUID
 `7D7382D0-EADD-36F0-BA1C-CEBEC1D5BEBC`) running on an iPhone through CyPort, as a RED4ext plugin. No overlay: no ImGui, no console
 window, no renderer. Based on the macOS port in `../macos` (codeman101, branch `mac-next`); everything iOS-specific is behind `CET_IOS`
 and `CET_HEADLESS`, and the macOS and Windows builds are unchanged.
-
-Nothing here has run on a phone yet.
 
 ## What works without the overlay
 
@@ -78,3 +81,69 @@ uncompressed `tweakdb/tweakdb.str` is.
 `build-luajit.sh` changes one line in its own copy of the LuaJIT source: LuaJIT turns frame unwinding off on every iOS target, and CET
 needs C++ exceptions to cross Lua frames as on macOS. `test-luajit-unwind.sh` builds the same library for the iOS simulator and runs
 `test-luajit-unwind.cpp` in it.
+
+## Overlay (`CET_IOS_OVERLAY`)
+
+`-DCET_IOS_OVERLAY=ON` builds ImGui (1.91.1-docking, its own stb_truetype rasterizer, no FreeType), CET's widgets (console, bindings,
+settings, TweakDB editor, game log), the Lua `ImGui` bindings and the Metal renderer of the macOS port, with UIKit instead of AppKit.
+`CET_HEADLESS` is not defined in this build; the headless build is unchanged and stays the default.
+
+```bash
+cmake -S macos -B build-ios-overlay -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos \
+      -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=18.0 -DCET_IOS_OVERLAY=ON \
+      -DRED4EXT_SDK_DIR=<RED4ext.SDK-macos, branch mac-next-sdk1212> -DCODEWARE_DIR=<cp2077-codeware, branch ios>
+cmake --build build-ios-overlay
+ios/stage-deploy.sh build-ios-overlay "" deploy-overlay     # deploy-overlay/Cyberpunk 2077/, with fonts/ and the CyPortOverlayTest mod
+```
+
+Two more dependency sources in `../../vendor-mac/`: `imgui` (v1.91.1-docking) and `stb` (2c980bb).
+
+### What the app must have
+
+The app must be built from a CyPort-hooks shim with the "CET overlay" section (`shim/MacShim.m`). CET finds four functions in it by
+name; with an older app `MSRegisterOverlayLayer` is missing, CET logs that and runs without the overlay (mods and hotkeys still work).
+
+| shim function | CET's use (`src/metal/MetalRenderer.mm`) |
+|---|---|
+| `MSRegisterOverlayLayer(CAMetalLayer*)` | once, before the first drawable: the shim puts the layer over the game view, keeps it the view's size and leaves it out of frame pacing, low latency and the TV mirror |
+| `MSOverlaySetToggleHandler(void (*)(void))` | when the overlay is ready: the touch pad shows a CET button that calls `Overlay::Toggle` |
+| `MSOverlaySetCapture(int)` | overlay opened / closed: the pad hides, touches become mouse events, keys and mouse pass controller-only mode |
+| `MSOverlayShowKeyboard(int)` | a text field was tapped / no text field is active any more |
+
+### How it differs from the macOS overlay
+
+| area | macOS | iOS |
+|---|---|---|
+| layer | sublayer of the game's `NSView` layer, created and placed by CET | created by CET, placed and sized by the shim |
+| size | the view's pixels | `ios_render_scale` pixels per screen point (default 1.5; the phone has 3): 1311 x 603 on an iPhone 17 Pro |
+| drawables | always allocated | given back while nothing is drawn (the layer's drawable size goes to 1 x 1) |
+| input | `NSEvent` local monitor (`window_mac.mm`) | the same monitor on the shim's `NSEvent` stand-in (`window_ios.mm`); positions arrive as fractions of the game view |
+| touch | none | from the shim, as in the game's menus: tap = click, drag = scroll, hold still then drag = mouse drag (sliders, moving and resizing windows), two-finger tap = right click |
+| text | `NSEvent.characters` | the shim's on-screen keyboard sends characters; a Bluetooth keyboard's keys go through a US layout table |
+| keyboard on screen | none | opens when a text field is tapped; the window with the field moves up while the keyboard covers it |
+| style | scaled against 1080p | sized in screen points (text about 14 pt), larger paddings, scroll bars and touch margins (`ApplyTouchStyle`); `ios_ui_scale` scales it |
+| fonts | FreeType, the system language's glyph set | stb_truetype, Latin only (a CJK language setting is ignored: memory); icons without oversampling |
+| first start | asks for an overlay key | no question: the CET button opens it; an unset overlay key becomes F11 |
+| cursor | the game view's cursor | none for fingers; ImGui draws a pointer while a mouse moves |
+
+`config.json`, under `font`: `ios_render_scale` (1 to 3, pixels per point) and `ios_ui_scale` (0.5 to 2, text and control size),
+besides `base_size` (18).
+
+### Memory (estimates, not measured on the phone)
+
+| item | size |
+|---|---|
+| dylib | 9.8 MB on disk (headless: 6.2 MB) |
+| font atlas texture, 2048 x 1376 RGBA at the default scale (measured on a Mac with the same settings) | 10.8 MB; 18.4 MB at `ios_render_scale` 2, 41.6 MB at 3 |
+| drawables, 3 x 1311 x 603 BGRA, only while something is drawn | 9.5 MB; 16.9 MB at scale 2, 38 MB at 3 |
+| ImGui context, draw lists, vertex buffers | 1 to 3 MB |
+| Lua `ImGui` bindings in the VM | 1 to 2 MB |
+
+About 25 MB with the overlay open and 15 MB closed, on top of the headless plugin.
+
+### Not yet
+
+- Nothing in this section has run on a phone.
+- Images in mods (`ImGui.Image`, `LoadTexture`) are compiled in and untested.
+- Copy and paste use ImGui's own clipboard, not the iPhone's.
+- With a TV connected the keyboard is on the phone and the overlay on the TV; windows still move up for the keyboard.

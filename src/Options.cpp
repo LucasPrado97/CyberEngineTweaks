@@ -35,11 +35,20 @@ void FontSettings::Load(const nlohmann::json& aConfig)
     BaseSize = aConfig.value("base_size", BaseSize);
     OversampleHorizontal = aConfig.value("oversample_horizontal", OversampleHorizontal);
     OversampleVertical = aConfig.value("oversample_vertical", OversampleVertical);
+#if CET_IOS
+    OverlayRenderScale = std::clamp(aConfig.value("ios_render_scale", OverlayRenderScale), 1.0f, 3.0f);
+    OverlayUIScale = std::clamp(aConfig.value("ios_ui_scale", OverlayUIScale), 0.5f, 2.0f);
+#endif
 }
 
 nlohmann::json FontSettings::Save() const
 {
-    return {{"path", Path}, {"language", Language}, {"base_size", BaseSize}, {"oversample_horizontal", OversampleHorizontal}, {"oversample_vertical", OversampleVertical}};
+    nlohmann::json config = {{"path", Path}, {"language", Language}, {"base_size", BaseSize}, {"oversample_horizontal", OversampleHorizontal}, {"oversample_vertical", OversampleVertical}};
+#if CET_IOS
+    config["ios_render_scale"] = OverlayRenderScale;
+    config["ios_ui_scale"] = OverlayUIScale;
+#endif
+    return config;
 }
 
 void FontSettings::ResetToDefaults()

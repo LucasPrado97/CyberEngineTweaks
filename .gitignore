@@ -21,3 +21,5 @@ src/config/*
 # iOS (CyPort) build and staged deploy folder
 build-ios/
 deploy/
+build-ios-overlay/
+deploy-overlay/

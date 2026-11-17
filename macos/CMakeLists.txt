@@ -15,6 +15,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
 else()
     set(CET_IOS OFF)
 endif()
+# iOS with the overlay (ios/README.md, "Overlay"): -DCET_IOS_OVERLAY=ON builds ImGui, the widgets and the Metal renderer too. The
+# overlay draws into its own CAMetalLayer that the CyPort shim puts over the game view, and gets touches, mouse and keys from the
+# shim. Off by default: the headless plugin stays the default iOS build.
+option(CET_IOS_OVERLAY "iOS: build the ImGui overlay (console, mod windows) instead of the headless plugin" OFF)
+if(CET_IOS AND NOT CET_IOS_OVERLAY)
+    set(CET_HEADLESS_BUILD ON)
+else()
+    set(CET_HEADLESS_BUILD OFF)
+endif()
 if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     if(CET_IOS)
         set(CMAKE_OSX_DEPLOYMENT_TARGET "18.0")
@@ -145,12 +154,17 @@ file(GLOB_RECURSE CET_SOURCES CONFIGURE_DEPENDS "${CET_SRC}/*.cpp" "${CET_SRC}/*
 list(FILTER CET_SOURCES EXCLUDE REGEX "/src/d3d12/")
 list(FILTER CET_SOURCES EXCLUDE REGEX "/src/patches/")
 list(REMOVE_ITEM CET_SOURCES "${CET_SRC}/reverse/RenderContext.cpp" "${CET_SRC}/imgui_impl/dx12.cpp" "${CET_SRC}/imgui_impl/win32.cpp" "${CET_SRC}/window/window.cpp")
-if(CET_IOS)
+if(CET_HEADLESS_BUILD)
     # Headless: no overlay, no widgets, no Metal renderer, no ImGui backends or bindings, no AppKit window; src/headless stands in.
     list(FILTER CET_SOURCES EXCLUDE REGEX "/src/(overlay|metal|imgui_impl|window)/")
     list(REMOVE_ITEM CET_SOURCES "${CET_SRC}/scripting/Texture.cpp")
+elseif(CET_IOS)
+    # iOS overlay: the window and input come from the CyPort shim (src/window/window_ios.mm) instead of AppKit; of src/headless only
+    # the key-code table (InputIOS.mm) is used.
+    list(REMOVE_ITEM CET_SOURCES "${CET_SRC}/window/window_mac.mm" "${CET_SRC}/headless/Headless.cpp")
 else()
     list(FILTER CET_SOURCES EXCLUDE REGEX "/src/headless/")
+    list(REMOVE_ITEM CET_SOURCES "${CET_SRC}/window/window_ios.mm")
 endif()
 
 set(IMGUI_DIR "${CET_VENDOR_MAC}/imgui")
@@ -163,8 +177,11 @@ set(IMGUI_SOURCES
     "${IMGUI_DIR}/misc/freetype/imgui_freetype.cpp"
     "${IMGUI_DIR}/backends/imgui_impl_metal.mm"
 )
-if(CET_IOS)
+if(CET_HEADLESS_BUILD)
     set(IMGUI_SOURCES "")
+elseif(CET_IOS)
+    # No FreeType on iOS (Homebrew's static library is a macOS build): ImGui's own stb_truetype rasterizer.
+    list(REMOVE_ITEM IMGUI_SOURCES "${IMGUI_DIR}/misc/freetype/imgui_freetype.cpp")
 endif()
 set(TILTED_DIR "${CET_VENDOR_MAC}/TiltedCore/Code/core/src")
 set(TILTED_SOURCES
@@ -202,9 +219,12 @@ target_compile_definitions(cyber_engine_tweaks PRIVATE
     NOMINMAX SOL_NO_NIL=0 SOL_ALL_SAFETIES_ON SOL_LUAJIT=1 SOL_EXCEPTIONS_SAFE_PROPAGATION
     SPDLOG_FMT_EXTERNAL
 )
-if(CET_IOS)
+if(CET_HEADLESS_BUILD)
     # spdlog and fmt header-only from vendor-mac (Homebrew's static libraries are macOS builds).
     target_compile_definitions(cyber_engine_tweaks PRIVATE CET_IOS=1 CET_HEADLESS=1 FMT_HEADER_ONLY=1)
+elseif(CET_IOS)
+    target_compile_definitions(cyber_engine_tweaks PRIVATE CET_IOS=1 CET_IOS_OVERLAY=1 FMT_HEADER_ONLY=1
+                               IMGUI_USER_CONFIG="${IMGUI_USER_CONFIG}" IMGUI_USE_WCHAR32)
 else()
     target_compile_definitions(cyber_engine_tweaks PRIVATE IMGUI_USER_CONFIG="${IMGUI_USER_CONFIG}" IMGUI_ENABLE_FREETYPE IMGUI_USE_WCHAR32)
 endif()
@@ -237,6 +257,9 @@ if(CET_IOS)
         "${CET_VENDOR_MAC}/spdlog/include"
         "${CET_VENDOR_MAC}/fmt/include"
     )
+    if(NOT CET_HEADLESS_BUILD)
+        target_include_directories(cyber_engine_tweaks PRIVATE "${IMGUI_DIR}" "${IMGUI_DIR}/backends" "${CET_VENDOR_MAC}/stb")
+    endif()
 else()
     target_include_directories(cyber_engine_tweaks PRIVATE
         "${IMGUI_DIR}"
@@ -257,6 +280,9 @@ if(CET_IOS)
         sqlite3
         "-framework Foundation" "-framework CoreFoundation" "-framework UIKit"
     )
+    if(NOT CET_HEADLESS_BUILD)
+        target_link_libraries(cyber_engine_tweaks PRIVATE "-framework QuartzCore" "-framework Metal" "-framework CoreGraphics")
+    endif()
 else()
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -undefined dynamic_lookup")
 target_link_libraries(cyber_engine_tweaks PRIVATE
@@ -276,7 +302,7 @@ target_precompile_headers(cyber_engine_tweaks PRIVATE $<$<COMPILE_LANGUAGE:CXX>:
 set_source_files_properties(${IMGUI_SOURCES} ${TILTED_SOURCES} MacVault.cpp TiltedMallocAllocator.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 # ImGui's Metal backend defines Objective-C classes with generic names; NightCity Console's overlay (injected in the same process) carries
 # its own copy, and two classes with one name make the Objective-C runtime pick one at random. CET's copies get their own names.
-if(NOT CET_IOS)
+if(NOT CET_HEADLESS_BUILD)
 set_source_files_properties("${IMGUI_DIR}/backends/imgui_impl_metal.mm" PROPERTIES COMPILE_DEFINITIONS
     "MetalBuffer=CETImGuiMetalBuffer;FramebufferDescriptor=CETImGuiFramebufferDescriptor;MetalContext=CETImGuiMetalContext")
 endif()
@@ -305,8 +331,10 @@ add_custom_command(TARGET cyber_engine_tweaks POST_BUILD
     VERBATIM
 )
 
-if(CET_IOS)
+if(CET_HEADLESS_BUILD)
     message(STATUS "Cyber Engine Tweaks ${CET_GIT_TAG} (${CET_GIT_BRANCH} ${CET_GIT_COMMIT}) configured for iOS (headless)")
+elseif(CET_IOS)
+    message(STATUS "Cyber Engine Tweaks ${CET_GIT_TAG} (${CET_GIT_BRANCH} ${CET_GIT_COMMIT}) configured for iOS (ImGui overlay)")
 else()
     message(STATUS "Cyber Engine Tweaks ${CET_GIT_TAG} (${CET_GIT_BRANCH} ${CET_GIT_COMMIT}) configured for macOS")
 endif()
