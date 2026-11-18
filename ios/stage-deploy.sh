@@ -8,7 +8,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; CET="$(dirname "$HERE")"
 BUILD="${1:-$CET/build-ios}"; IDENTITY="${2:-}"; OUT="${3:-deploy}"
 [[ "$BUILD" = /* ]] || BUILD="$CET/$BUILD"
-[[ -n "$IDENTITY" ]] || IDENTITY="9921DA56B69BB846944ECD1FAB6CCAC526172D37"
+[[ -n "$IDENTITY" ]] || IDENTITY="${SIGN_ID:--}"   # "-" = ad-hoc; on iOS sign with the app's team
 DYLIB="$BUILD/cyber_engine_tweaks.dylib"
 [[ -f "$DYLIB" ]] || { echo "stage-deploy.sh: $DYLIB not built" >&2; exit 1; }
 ROOT="$CET/$OUT/Cyberpunk 2077"
